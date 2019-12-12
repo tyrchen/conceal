@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+  "conceal-core",
+  "conceal",
+]
