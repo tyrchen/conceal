@@ -19,3 +19,9 @@ criterion = "0.3"
 rand = "0.7"
 tempfile = "3"
 tokio = { version = "0.2", features = ["macros"]}
+
+
+[[bench]]
+name = "bench_conceal"
+harness = false
+

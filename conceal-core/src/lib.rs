@@ -125,6 +125,7 @@ impl Session {
         let len = fi.read_exact(&mut in_buf[..remainder]).await?;
         let len = self.state.write_message(&in_buf[..len], &mut out_buf)?;
         let len = fo.write(&mut out_buf[..len]).await?;
+        fo.sync_all().await?;
 
         total_size += len;
         Ok(total_size)
@@ -163,6 +164,7 @@ impl Session {
         let len = fi.read_exact(&mut in_buf[..remainder]).await?;
         let len = session.state.read_message(&in_buf[..len], &mut out_buf)?;
         fo.write_all(&mut out_buf[..len]).await?;
+        fo.sync_all().await?;
         total_size += len;
 
         Ok(total_size)
@@ -196,6 +198,11 @@ impl Session {
     }
 }
 
+pub fn generate_keypair() -> Result<Keypair, ConcealError> {
+    let keypair = Builder::new(NOISE_PARAMS.parse()?).generate_keypair()?;
+    Ok(keypair)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,8 +218,8 @@ mod tests {
         fill_file(fi1, &mut in_buf).await;
         // fs::write(fi1, b"hello world").await.unwrap();
 
-        let client_keypair = Builder::new(NOISE_PARAMS.parse()?).generate_keypair()?;
-        let server_keypair = Builder::new(NOISE_PARAMS.parse()?).generate_keypair()?;
+        let client_keypair = generate_keypair().unwrap();
+        let server_keypair = generate_keypair().unwrap();
 
         // encrypt
         let client_config = SessionConfig::new(
