@@ -7,8 +7,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "0.5"
-snow = "0.6"
+bytes = "0.4"
+futures = "0.3"
+prost = "0.5"
+prost-types = "0.5"
+snow = { version="0.6", features=["ring-accelerated"] }
 thiserror = "1"
 tokio = { version = "0.2", features = ["fs", "io-util"] }
 tracing = "0.1"
@@ -20,6 +23,8 @@ rand = "0.7"
 tempfile = "3"
 tokio = { version = "0.2", features = ["macros"]}
 
+[build-dependencies]
+prost-build = "0.5"
 
 [[bench]]
 name = "bench_conceal"

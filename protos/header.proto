@@ -1,0 +1,34 @@
+syntax = "proto3";
+package header;
+
+enum CipherMode {
+  ChaChaPoly = 0;
+  AESGCM = 1;
+}
+
+enum HashMode {
+  BLAKE2b = 0;
+  BLAKE2s = 1;
+  SHA512 = 2;
+  SHA256 = 3;
+}
+
+// this is the file header for encrypted files. Note that we deliberately fixed
+// the DH function to ed25519 since it provides same level of security as ed448,
+// but performance is better. The default choise of if all the parameters are
+// default value: Noise_X_25519_ChaChaPoly_BLAKE2b. This fits the most of the
+// security standards. However, initiator and responder can use a pre shared key
+// for extra level of security.
+message Header {
+  // cipher function used by noise protocol
+  CipherMode cipher = 1;
+  // hash function used by noise protocol
+  HashMode hash = 2;
+  // if present, we will do a Xpsk1
+  // <- s
+  // ...
+  // -> e, es, s, ss, psk
+  bytes psk = 3;
+  // handshake message from the initiator
+  bytes handshake_message = 4;
+}

@@ -1,4 +1,4 @@
-use conceal_core::{generate_keypair, Session, SessionConfig};
+use conceal_core::{generate_keypair, Header, Session, SessionConfig};
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::RngCore;
 use std::{fmt, fs, path::Path};
@@ -39,8 +39,8 @@ fn encrypt(c: &mut Criterion) {
             let client_keypair = generate_keypair().unwrap();
             let server_keypair = generate_keypair().unwrap();
 
-            let config =
-                SessionConfig::new(None, Some(server_keypair.public), client_keypair, None);
+            let header = Header::default();
+            let config = SessionConfig::new(header, Some(server_keypair.public), client_keypair);
             let mut session = Session::new(config).unwrap();
 
             let mut rt = Runtime::new().unwrap();
