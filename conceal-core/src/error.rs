@@ -11,6 +11,8 @@ pub enum ConcealError {
     InvalidCipher(i32),
     #[error("Invalid hash mode: {0}")]
     InvalidHash(i32),
+    #[error("a valid PSK is required")]
+    InvalidPsk,
     #[error("cannot encode data to protobuf")]
     ProtoEncodeError,
     #[error("cannot decode data from protobuf")]

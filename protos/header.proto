@@ -24,11 +24,11 @@ message Header {
   CipherMode cipher = 1;
   // hash function used by noise protocol
   HashMode hash = 2;
-  // if present, we will do a Xpsk1
+  // if true, we will do a Xpsk1. Note user shall provide the psk upon Session::new.
   // <- s
   // ...
   // -> e, es, s, ss, psk
-  bytes psk = 3;
+  bool use_psk = 3;
   // handshake message from the initiator
   bytes handshake_message = 4;
 }

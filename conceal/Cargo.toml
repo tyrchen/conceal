@@ -8,5 +8,5 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-clap = "2"
+structopt = "0.3"
 conceal-core = { path = "../conceal-core" }

@@ -8,23 +8,14 @@ impl Header {
     pub fn new(
         cipher: CipherMode,
         hash: HashMode,
-        psk: Option<&[u8; 32]>,
+        use_psk: bool,
         handshake_message: Vec<u8>,
     ) -> Self {
-        if psk.is_none() {
-            Self {
-                cipher: cipher as i32,
-                hash: hash as i32,
-                psk: Vec::new(),
-                handshake_message,
-            }
-        } else {
-            Self {
-                cipher: cipher as i32,
-                hash: hash as i32,
-                psk: psk.unwrap().to_vec(),
-                handshake_message,
-            }
+        Self {
+            cipher: cipher as i32,
+            hash: hash as i32,
+            use_psk,
+            handshake_message,
         }
     }
 }
@@ -42,7 +33,7 @@ impl fmt::Display for Header {
             3 => "SHA256",
             _ => "BLAKE2b",
         };
-        let psk_str = if self.psk.is_empty() { "" } else { "psk1" };
+        let psk_str = if self.use_psk { "psk1" } else { "" };
         write!(f, "Noise_X{}_25519_{}_{}", psk_str, cipher_name, hash_name)
     }
 }

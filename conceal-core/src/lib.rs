@@ -12,6 +12,8 @@ pub mod protos;
 pub use error::ConcealError;
 pub use protos::{CipherMode, HashMode, Header, Proto};
 
+pub type Psk = [u8; 32];
+
 pub const NOISE_PARAMS: &str = "Noise_X_25519_ChaChaPoly_BLAKE2b";
 pub const NOISE_MESSAGE_MAX_BUFFER: usize = 65535;
 pub const NOISE_MESSAGE_MAX_SIZE: usize = NOISE_MESSAGE_MAX_BUFFER - 16;
@@ -37,14 +39,17 @@ pub struct SessionConfig {
     pub rs: Option<Vec<u8>>,
     /// local static keypair
     pub keypair: Keypair,
+    /// psk
+    pub psk: Option<Psk>,
 }
 
 impl SessionConfig {
-    pub fn new(header: Header, rs: Option<Vec<u8>>, keypair: Keypair) -> Self {
+    pub fn new(header: Header, rs: Option<Vec<u8>>, keypair: Keypair, psk: Option<Psk>) -> Self {
         Self {
             header,
             rs,
             keypair,
+            psk,
         }
     }
 }
@@ -66,7 +71,7 @@ impl Session {
 
         if header.handshake_message.is_empty() {
             // initiator
-            let mut noise = if header.psk.is_empty() {
+            let mut noise = if !header.use_psk {
                 Builder::new(noise_params)
                     .remote_public_key(&config.rs.unwrap())
                     .local_private_key(&config.keypair.private)
@@ -75,7 +80,7 @@ impl Session {
                 Builder::new(noise_params)
                     .remote_public_key(&config.rs.unwrap())
                     .local_private_key(&config.keypair.private)
-                    .psk(1, &header.psk)
+                    .psk(1, &config.psk.unwrap())
                     .build_initiator()?
             };
 
@@ -86,14 +91,14 @@ impl Session {
             Ok(Self { state, header })
         } else {
             // responder
-            let mut noise = if header.psk.is_empty() {
+            let mut noise = if !header.use_psk {
                 Builder::new(noise_params)
                     .local_private_key(&config.keypair.private)
                     .build_responder()?
             } else {
                 Builder::new(noise_params)
                     .local_private_key(&config.keypair.private)
-                    .psk(1, &header.psk)
+                    .psk(1, &config.psk.unwrap())
                     .build_responder()?
             };
             let _len = noise.read_message(&header.handshake_message, &mut buf)?;
@@ -134,6 +139,7 @@ impl Session {
 
     pub async fn decrypt_file(
         keypair: Keypair,
+        psk: Option<Psk>,
         infile: impl AsRef<Path>,
         outfile: impl AsRef<Path>,
     ) -> Result<usize, ConcealError> {
@@ -142,7 +148,10 @@ impl Session {
 
         let (chunks, remainder) = Self::get_chunks(&infile, NOISE_MESSAGE_MAX_BUFFER, len).await?;
 
-        let config = SessionConfig::new(header, None, keypair);
+        if header.use_psk && psk.is_none() {
+            return Err(ConcealError::InvalidPsk);
+        }
+        let config = SessionConfig::new(header, None, keypair, psk);
         let mut session = Session::new(config)?;
 
         let mut fo = File::create(outfile).await?;
@@ -368,15 +377,24 @@ mod tests {
 
         let client_keypair = generate_keypair().unwrap();
         let server_keypair = generate_keypair().unwrap();
+        let psk: Option<Psk> = if header.use_psk {
+            Some(*b"super secret 32 bytes length str")
+        } else {
+            None
+        };
 
         // encrypt
-        let client_config =
-            SessionConfig::new(header, Some(server_keypair.public.clone()), client_keypair);
+        let client_config = SessionConfig::new(
+            header,
+            Some(server_keypair.public.clone()),
+            client_keypair,
+            psk,
+        );
         let mut client_session = Session::new(client_config)?;
         let _len = client_session.encrypt_file(&fi1, &fo).await?;
 
         // decrypt
-        let _len = Session::decrypt_file(server_keypair, &fo, &fi2).await?;
+        let _len = Session::decrypt_file(server_keypair, psk, &fo, &fi2).await?;
         let out_buf = fs::read(&fi2).await?;
 
         Ok(in_buf == out_buf)
@@ -388,12 +406,7 @@ mod tests {
         use_psk: bool,
         params: Vec<usize>,
     ) -> Result<bool, ConcealError> {
-        let psk = Some(b"super secret 32 bytes length str");
-        let header = if use_psk {
-            Header::new(cipher, hash, psk, Vec::new())
-        } else {
-            Header::new(cipher, hash, None, Vec::new())
-        };
+        let header = Header::new(cipher, hash, use_psk, Vec::new());
         let futs: Vec<_> = params
             .iter()
             .map(|size| encrypt_decrypt(header.clone(), size.to_owned()))

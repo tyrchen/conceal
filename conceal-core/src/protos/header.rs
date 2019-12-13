@@ -12,12 +12,12 @@ pub struct Header {
     /// hash function used by noise protocol
     #[prost(enumeration="HashMode", tag="2")]
     pub hash: i32,
-    /// if present, we will do a Xpsk1
+    /// if true, we will do a Xpsk1. Note user shall provide the psk upon Session::new.
     /// <- s
     /// ...
     /// -> e, es, s, ss, psk
-    #[prost(bytes, tag="3")]
-    pub psk: std::vec::Vec<u8>,
+    #[prost(bool, tag="3")]
+    pub use_psk: bool,
     /// handshake message from the initiator
     #[prost(bytes, tag="4")]
     pub handshake_message: std::vec::Vec<u8>,
