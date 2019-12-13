@@ -229,7 +229,7 @@ impl Session {
         let len = fi.read_u16().await? as usize;
         let len = fi.read_exact(&mut in_buf[..len]).await?;
         let len = self.state.read_message(&in_buf[..len], out_buf)?;
-        fo.write_all(&mut out_buf[..len]).await?;
+        fo.write_all(&out_buf[..len]).await?;
         Ok((len + 2) as usize)
     }
 }

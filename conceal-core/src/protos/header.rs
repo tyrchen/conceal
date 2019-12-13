@@ -7,19 +7,19 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Header {
     /// cipher function used by noise protocol
-    #[prost(enumeration="CipherMode", tag="1")]
+    #[prost(enumeration = "CipherMode", tag = "1")]
     pub cipher: i32,
     /// hash function used by noise protocol
-    #[prost(enumeration="HashMode", tag="2")]
+    #[prost(enumeration = "HashMode", tag = "2")]
     pub hash: i32,
     /// if true, we will do a Xpsk1. Note user shall provide the psk upon Session::new.
     /// <- s
     /// ...
     /// -> e, es, s, ss, psk
-    #[prost(bool, tag="3")]
+    #[prost(bool, tag = "3")]
     pub use_psk: bool,
     /// handshake message from the initiator
-    #[prost(bytes, tag="4")]
+    #[prost(bytes, tag = "4")]
     pub handshake_message: std::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

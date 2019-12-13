@@ -29,4 +29,3 @@ prost-build = "0.5"
 [[bench]]
 name = "bench_conceal"
 harness = false
-
