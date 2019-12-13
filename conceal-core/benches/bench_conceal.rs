@@ -40,7 +40,8 @@ fn encrypt(c: &mut Criterion) {
             let server_keypair = generate_keypair().unwrap();
 
             let header = Header::default();
-            let config = SessionConfig::new(header, Some(server_keypair.public), client_keypair);
+            let config =
+                SessionConfig::new(header, Some(server_keypair.public), client_keypair, None);
             let mut session = Session::new(config).unwrap();
 
             let mut rt = Runtime::new().unwrap();
