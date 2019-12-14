@@ -13,6 +13,8 @@ pub use error::ConcealError;
 pub use protos::{CipherMode, HashMode, Header, Proto};
 pub use snow::Keypair;
 
+pub type PublicKey = [u8; 32];
+
 pub type Psk = [u8; 32];
 
 pub const NOISE_PARAMS: &str = "Noise_X_25519_ChaChaPoly_BLAKE2b";

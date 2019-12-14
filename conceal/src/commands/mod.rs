@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use conceal_core::{Keypair, Psk};
+use conceal_core::{Keypair, Psk, PublicKey};
 use rand::RngCore;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -20,6 +20,16 @@ fn parse_psk(src: &str) -> Result<Psk> {
         return Err(anyhow!("pre shared key must be 32 bytes long"));
     }
     buf.copy_from_slice(src.as_bytes());
+    Ok(buf)
+}
+
+fn parse_pk(src: &str) -> Result<PublicKey> {
+    let pk = bs58::decode(src.as_bytes()).into_vec()?;
+    if pk.len() != 32 {
+        return Err(anyhow!("Please provide a valid public key by recipient (she could do `conceal show-id` to get the key)"));
+    }
+    let mut buf = [0u8; 32];
+    buf.copy_from_slice(&pk[..]);
     Ok(buf)
 }
 
@@ -44,8 +54,8 @@ pub enum Command {
         use_psk: bool,
 
         /// base58 string of the ed25519 public key of the recipient
-        #[structopt(short, long)]
-        recipient: String,
+        #[structopt(short = "r", long, parse(try_from_str=parse_pk))]
+        recipient: PublicKey,
 
         /// hash algorithm to use
         #[structopt(long, default_value = "0")]

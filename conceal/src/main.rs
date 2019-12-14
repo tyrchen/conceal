@@ -24,6 +24,9 @@ fn main() -> Result<()> {
         }
     };
 
-    rt.block_on(fut)?;
+    if let Err(err) = rt.block_on(fut) {
+        eprintln!("{}", err);
+        std::process::exit(1);
+    }
     Ok(())
 }
