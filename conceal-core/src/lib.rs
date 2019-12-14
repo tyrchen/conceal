@@ -1,6 +1,6 @@
 // use bytes::{BufMut, BytesMut};
 
-use snow::{Builder, Keypair, TransportState};
+use snow::{Builder, TransportState};
 use std::path::Path;
 use tokio::{
     fs::{self, File},
@@ -11,6 +11,7 @@ pub mod error;
 pub mod protos;
 pub use error::ConcealError;
 pub use protos::{CipherMode, HashMode, Header, Proto};
+pub use snow::Keypair;
 
 pub type Psk = [u8; 32];
 
@@ -369,9 +370,10 @@ mod tests {
     // private functions
     async fn encrypt_decrypt(header: Header, file_size: usize) -> Result<bool, ConcealError> {
         let mut in_buf = vec![0; file_size];
-        let fi1 = format!("/tmp/cleartext1_{}_{}", header, file_size);
-        let fo = format!("/tmp/ciphertext_{}_{}", header, file_size);
-        let fi2 = format!("/tmp/cleartext2_{}_{}", header, file_size);
+        fs::create_dir_all("/tmp/conceal").await?;
+        let fi1 = format!("/tmp/conceal/cleartext1_{}_{}", header, file_size);
+        let fo = format!("/tmp/conceal/ciphertext_{}_{}", header, file_size);
+        let fi2 = format!("/tmp/conceal/cleartext2_{}_{}", header, file_size);
         fill_file(&fi1, &mut in_buf).await;
         // fs::write(fi1, b"hello world").await.unwrap();
 
@@ -406,7 +408,7 @@ mod tests {
         use_psk: bool,
         params: Vec<usize>,
     ) -> Result<bool, ConcealError> {
-        let header = Header::new(cipher, hash, use_psk, Vec::new());
+        let header = Header::new(cipher as i32, hash as i32, use_psk, Vec::new());
         let futs: Vec<_> = params
             .iter()
             .map(|size| encrypt_decrypt(header.clone(), size.to_owned()))

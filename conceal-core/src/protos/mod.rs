@@ -5,15 +5,10 @@ mod header;
 pub use header::{CipherMode, HashMode, Header};
 
 impl Header {
-    pub fn new(
-        cipher: CipherMode,
-        hash: HashMode,
-        use_psk: bool,
-        handshake_message: Vec<u8>,
-    ) -> Self {
+    pub fn new(cipher: i32, hash: i32, use_psk: bool, handshake_message: Vec<u8>) -> Self {
         Self {
-            cipher: cipher as i32,
-            hash: hash as i32,
+            cipher: cipher,
+            hash: hash,
             use_psk,
             handshake_message,
         }
