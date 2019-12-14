@@ -8,5 +8,10 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-structopt = "0.3"
+bs58 = "0.3"
 conceal-core = { path = "../conceal-core" }
+dirs = "2"
+rand = "0.7"
+structopt = "0.3"
+tokio = { version = "0.2", features = ["fs", "io-util"] }
+

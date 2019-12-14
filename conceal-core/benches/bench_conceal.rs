@@ -29,11 +29,13 @@ fn encrypt(c: &mut Criterion) {
         },
     ];
 
+    fs::create_dir_all("/tmp/conceal").unwrap();
+
     c.bench_function_over_inputs(
         "encryption",
         move |b, &&p| {
-            let infile = "/tmp/bench_encrypt_cleartext";
-            let outfile = "/tmp/bench_decrypt_ciphertext";
+            let infile = "/tmp/conceal/bench_encrypt_cleartext";
+            let outfile = "/tmp/conceal/bench_decrypt_ciphertext";
             let mut buf = vec![0u8; p.size as usize];
             fill_file(&infile, &mut buf);
             let client_keypair = generate_keypair().unwrap();
