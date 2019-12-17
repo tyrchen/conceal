@@ -9,14 +9,15 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 bytes = "0.4"
+env_logger = "0.7"
 futures = "0.3"
+log = "0.4"
 memmap = "0.7"
 prost = "0.5"
 prost-types = "0.5"
 snow = { version="0.6", features=["ring-accelerated"] }
 thiserror = "1"
 tokio = { version = "0.2", features = ["fs", "io-util"] }
-tracing = "0.1"
 
 [dev-dependencies]
 anyhow = "1"

@@ -1,10 +1,12 @@
 // use bytes::{BufMut, BytesMut};
 
 use byteorder::{BigEndian, ByteOrder};
+use log::{debug, info, warn};
 use memmap::{Mmap, MmapMut};
 use prost::Message;
 use snow::{Builder, TransportState};
 use std::{
+    fmt,
     fs::{File, OpenOptions},
     io::Write,
     path::Path,
@@ -22,7 +24,9 @@ pub type Psk = [u8; 32];
 
 pub const NOISE_PARAMS: &str = "Noise_X_25519_ChaChaPoly_BLAKE2b";
 pub const NOISE_MESSAGE_MAX_BUFFER: usize = 65528;
-pub const NOISE_MESSAGE_MAX_SIZE: usize = NOISE_MESSAGE_MAX_BUFFER - 16;
+pub const NOISE_MAC_SIZE: usize = 16;
+pub const NOISE_ENCRYPT_LENGTH_SIZE: usize = 2;
+pub const NOISE_MESSAGE_MAX_SIZE: usize = NOISE_MESSAGE_MAX_BUFFER - NOISE_MAC_SIZE;
 
 pub const FILE_READ_SIZE: usize = 16384;
 
@@ -100,6 +104,7 @@ impl Session {
             let handshake_message = buf[..len].to_vec();
             header.handshake_message = handshake_message;
             let state = noise.into_transport_mode()?;
+            info!("Initiator handshake finished. Move into transport mode");
             Ok(Self { state, header })
         } else {
             // responder
@@ -115,28 +120,32 @@ impl Session {
             };
             let _len = noise.read_message(&header.handshake_message, &mut buf)?;
             let state = noise.into_transport_mode()?;
+            info!("Responder handshake finished. Move into transport mode");
             Ok(Self { state, header })
         }
     }
 
     pub async fn encrypt_file(
         &mut self,
-        infile: impl AsRef<Path>,
-        outfile: impl AsRef<Path>,
+        infile: impl AsRef<Path> + fmt::Debug,
+        outfile: impl AsRef<Path> + fmt::Debug,
     ) -> Result<usize, ConcealError> {
         let (chunks, remainder) = Self::get_chunks(&infile, NOISE_MESSAGE_MAX_SIZE, 0).await?;
-        let fi = File::open(infile)?;
+        let fi = File::open(&infile)?;
         let fo = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&outfile)?;
-        fo.set_len(self.get_enc_len(chunks, remainder))?;
+        let total = self.get_enc_len(chunks, remainder);
+        fo.set_len(total)?;
+        info!("Encrypted file length: {}", total);
 
         let mi = unsafe { Mmap::map(&fi)? };
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
         let len = self.write_header(&mut mo)?;
+        debug!("Encrypted file header length: {}", len);
         let mut mi_pos = Pos {
             offset: 0,
             len: NOISE_MESSAGE_MAX_SIZE,
@@ -146,13 +155,19 @@ impl Session {
             len: NOISE_MESSAGE_MAX_BUFFER,
         };
 
-        for _i in 0..chunks {
+        for i in 0..chunks {
             self.write_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
+            debug!("chunk {}: {:#?}, {:#?}", i, mi_pos, mo_pos);
         }
         // write the remainder
-        mi_pos.len = remainder;
-        self.write_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
+        if remainder != 0 {
+            mi_pos.len = remainder;
+            debug!("Writing the last parts: len {}", remainder);
+            self.write_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
+        }
+
         mo.flush()?;
+        info!("Finished encrypting {:?} to {:?}", &infile, &outfile);
 
         Ok(mo_pos.offset)
     }
@@ -160,8 +175,8 @@ impl Session {
     pub async fn decrypt_file(
         keypair: Keypair,
         psk: Option<Psk>,
-        infile: impl AsRef<Path>,
-        outfile: impl AsRef<Path>,
+        infile: impl AsRef<Path> + fmt::Debug,
+        outfile: impl AsRef<Path> + fmt::Debug,
     ) -> Result<usize, ConcealError> {
         let fi = File::open(&infile)?;
         let mi = unsafe { Mmap::map(&fi)? };
@@ -174,28 +189,26 @@ impl Session {
         let config = SessionConfig::new(header, None, keypair, psk);
         let mut session = Session::new(config)?;
 
-        let (chunks, remainder) =
-            Self::get_chunks(&infile, NOISE_MESSAGE_MAX_BUFFER + 2, len).await?;
+        let (chunks, remainder) = Self::get_chunks(
+            &infile,
+            NOISE_MESSAGE_MAX_BUFFER + NOISE_ENCRYPT_LENGTH_SIZE,
+            len,
+        )
+        .await?;
         let fo = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&outfile)?;
-        println!(
-            "len: {}, chunks: {}, remainder: {}, set len: {}",
-            len,
-            chunks,
-            remainder,
-            Self::get_dec_len(chunks, remainder)
-        );
-        fo.set_len(Self::get_dec_len(chunks, remainder))?;
+        let total = Self::get_dec_len(chunks, remainder);
+        fo.set_len(total)?;
+        info!("Decrypted file length: {}", total);
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
         let mut mi_pos = Pos {
             offset: len,
             len: NOISE_MESSAGE_MAX_BUFFER,
         };
-        println!("{:?}", mi_pos);
         let mut mo_pos = Pos {
             offset: 0,
             len: NOISE_MESSAGE_MAX_SIZE,
@@ -205,22 +218,34 @@ impl Session {
             session.read_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
         }
         // read the remainder
-        mi_pos.len = remainder;
-        session.read_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
+        if remainder != 0 {
+            mi_pos.len = remainder;
+            session.read_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
+        }
         mo.flush()?;
+        info!("Finished decrypting {:?} to {:?}", &infile, &outfile);
 
         Ok(mo_pos.offset)
     }
 
     // private functions
     fn get_enc_len(&self, chunks: usize, remainder: usize) -> u64 {
-        (chunks * (NOISE_MESSAGE_MAX_BUFFER + 2)
-            + (remainder + 16 + 2)
-            + (self.header.encoded_len() + 2)) as u64
+        let len = (chunks * (NOISE_MESSAGE_MAX_BUFFER + NOISE_ENCRYPT_LENGTH_SIZE)
+            + (self.header.encoded_len() + NOISE_ENCRYPT_LENGTH_SIZE)) as u64;
+        if remainder > 0 {
+            len + (remainder + NOISE_MAC_SIZE + NOISE_ENCRYPT_LENGTH_SIZE) as u64
+        } else {
+            len
+        }
     }
 
     fn get_dec_len(chunks: usize, remainder: usize) -> u64 {
-        (chunks * NOISE_MESSAGE_MAX_SIZE + remainder - 16 - 2) as u64
+        let len = (chunks * NOISE_MESSAGE_MAX_SIZE) as u64;
+        if remainder > 0 {
+            len + (remainder - NOISE_MAC_SIZE - NOISE_ENCRYPT_LENGTH_SIZE) as u64
+        } else {
+            len
+        }
     }
     async fn get_chunks(
         name: impl AsRef<Path>,
@@ -231,6 +256,10 @@ impl Session {
         let len = metadata.len() as usize - offset;
         let chunks = len / size;
         let remainder = len % size;
+        debug!(
+            "get chunks: payload len: {}, chunks {}, remainder {}",
+            len, chunks, remainder
+        );
         Ok((chunks, remainder))
     }
 
@@ -238,15 +267,15 @@ impl Session {
         let mut buf = Vec::with_capacity(128);
         self.header.to_bytes(&mut buf)?;
         let len = buf.len() as u16;
-        BigEndian::write_u16(&mut mmap[..2], len);
-        (&mut mmap[2..]).write_all(&buf)?;
-        Ok((len + 2) as usize)
+        BigEndian::write_u16(&mut mmap[..NOISE_ENCRYPT_LENGTH_SIZE], len);
+        (&mut mmap[NOISE_ENCRYPT_LENGTH_SIZE..]).write_all(&buf[..len as usize])?;
+        Ok(len as usize + NOISE_ENCRYPT_LENGTH_SIZE)
     }
 
     fn read_header(mmap: &[u8]) -> Result<(Header, usize), ConcealError> {
-        let len = BigEndian::read_u16(&mmap[..2]) as usize;
-        let end = len + 2;
-        let header = Header::from_bytes(&mmap[2..end])?;
+        let len = BigEndian::read_u16(&mmap[..NOISE_ENCRYPT_LENGTH_SIZE]) as usize;
+        let end = len + NOISE_ENCRYPT_LENGTH_SIZE;
+        let header = Header::from_bytes(&mmap[NOISE_ENCRYPT_LENGTH_SIZE..end])?;
         Ok((header, end))
     }
 
@@ -261,16 +290,28 @@ impl Session {
         let mi_end = mi_start + mi_pos.len;
         mi_pos.offset = mi_end;
 
-        let mo_start = mo_pos.offset + 2;
-        let mo_end = mo_start + mi_pos.len + 16;
+        let mo_start = mo_pos.offset + NOISE_ENCRYPT_LENGTH_SIZE;
+        let mo_end = mo_start + mi_pos.len + NOISE_MAC_SIZE;
 
-        println!("mi: {}, {}, mo: {}, {}", mi_start, mi_end, mo_start, mo_end);
+        debug!(
+            "read cleartext ({}, {}), write ciphertext ({}, {})",
+            mi_start, mi_end, mo_start, mo_end
+        );
         let len = self
             .state
             .write_message(&mi[mi_start..mi_end], &mut mo[mo_start..mo_end])?;
-        BigEndian::write_u16(&mut mo[mo_start - 2..mo_start], len as u16);
+        if len != mi_pos.len + NOISE_MAC_SIZE {
+            warn!(
+                "written length: {} is not equal to {} + {}",
+                len, mi_pos.len, NOISE_MAC_SIZE
+            );
+        }
+        BigEndian::write_u16(
+            &mut mo[mo_start - NOISE_ENCRYPT_LENGTH_SIZE..mo_start],
+            len as u16,
+        );
 
-        mo_pos.offset = len + 2;
+        mo_pos.offset = len + NOISE_ENCRYPT_LENGTH_SIZE;
 
         Ok(())
     }
@@ -282,17 +323,17 @@ impl Session {
         mi_pos: &mut Pos,
         mo_pos: &mut Pos,
     ) -> Result<(), ConcealError> {
-        let mi_start = mi_pos.offset + 2;
-        let len = BigEndian::read_u16(&mi[mi_start - 2..mi_start]) as usize;
+        let mi_start = mi_pos.offset + NOISE_ENCRYPT_LENGTH_SIZE;
+        let len = BigEndian::read_u16(&mi[mi_start - NOISE_ENCRYPT_LENGTH_SIZE..mi_start]) as usize;
         let mi_end = mi_start + len;
         mi_pos.offset = mi_end;
 
         let mo_start = mo_pos.offset;
-        let mo_end = mo_start + len - 16;
+        let mo_end = mo_start + len - NOISE_MAC_SIZE;
 
-        println!(
-            "len: {}, mi: ({}, {}), mo: ({}, {})",
-            len, mi_start, mi_end, mo_start, mo_end
+        info!(
+            "read ciphertext ({}, {}), write cleartext ({}, {})",
+            mi_start, mi_end, mo_start, mo_end
         );
         let len = self
             .state
@@ -314,6 +355,9 @@ mod tests {
     use rand::RngCore;
     use tokio::fs;
 
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
     #[tokio::test]
     async fn default_params_shall_work() -> Result<(), ConcealError> {
         let result = param_combination(
@@ -475,6 +519,7 @@ mod tests {
         use_psk: bool,
         params: Vec<usize>,
     ) -> Result<bool, ConcealError> {
+        init();
         let header = Header::new(cipher as i32, hash as i32, use_psk, Vec::new());
         for size in params {
             let good = encrypt_decrypt(header.clone(), size).await?;
