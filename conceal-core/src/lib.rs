@@ -2,6 +2,7 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use memmap::{Mmap, MmapMut};
+use prost::Message;
 use snow::{Builder, TransportState};
 use std::{
     fs::{File, OpenOptions},
@@ -130,7 +131,8 @@ impl Session {
             .write(true)
             .create(true)
             .open(&outfile)?;
-        fo.set_len((chunks * NOISE_MESSAGE_MAX_BUFFER + remainder + 16 + 128) as u64)?;
+        fo.set_len(self.get_enc_len(chunks, remainder))?;
+
         let mi = unsafe { Mmap::map(&fi)? };
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
@@ -172,25 +174,28 @@ impl Session {
         let config = SessionConfig::new(header, None, keypair, psk);
         let mut session = Session::new(config)?;
 
-        let (chunks, remainder) = Self::get_chunks(&infile, NOISE_MESSAGE_MAX_BUFFER, len).await?;
+        let (chunks, remainder) =
+            Self::get_chunks(&infile, NOISE_MESSAGE_MAX_BUFFER + 2, len).await?;
         let fo = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&outfile)?;
         println!(
-            "chunks: {}, remainder: {}, set len: {}",
+            "len: {}, chunks: {}, remainder: {}, set len: {}",
+            len,
             chunks,
             remainder,
-            chunks * NOISE_MESSAGE_MAX_BUFFER + remainder
+            Self::get_dec_len(chunks, remainder)
         );
-        fo.set_len((chunks * NOISE_MESSAGE_MAX_BUFFER + remainder) as u64)?;
+        fo.set_len(Self::get_dec_len(chunks, remainder))?;
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
         let mut mi_pos = Pos {
             offset: len,
             len: NOISE_MESSAGE_MAX_BUFFER,
         };
+        println!("{:?}", mi_pos);
         let mut mo_pos = Pos {
             offset: 0,
             len: NOISE_MESSAGE_MAX_SIZE,
@@ -200,7 +205,7 @@ impl Session {
             session.read_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
         }
         // read the remainder
-        mi_pos.offset = remainder;
+        mi_pos.len = remainder;
         session.read_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
         mo.flush()?;
 
@@ -208,6 +213,15 @@ impl Session {
     }
 
     // private functions
+    fn get_enc_len(&self, chunks: usize, remainder: usize) -> u64 {
+        (chunks * (NOISE_MESSAGE_MAX_BUFFER + 2)
+            + (remainder + 16 + 2)
+            + (self.header.encoded_len() + 2)) as u64
+    }
+
+    fn get_dec_len(chunks: usize, remainder: usize) -> u64 {
+        (chunks * NOISE_MESSAGE_MAX_SIZE + remainder - 16 - 2) as u64
+    }
     async fn get_chunks(
         name: impl AsRef<Path>,
         size: usize,
@@ -220,7 +234,7 @@ impl Session {
         Ok((chunks, remainder))
     }
 
-    fn write_header(&self, mmap: &mut MmapMut) -> Result<usize, ConcealError> {
+    fn write_header(&self, mmap: &mut [u8]) -> Result<usize, ConcealError> {
         let mut buf = Vec::with_capacity(128);
         self.header.to_bytes(&mut buf)?;
         let len = buf.len() as u16;
@@ -229,7 +243,7 @@ impl Session {
         Ok((len + 2) as usize)
     }
 
-    fn read_header(mmap: &Mmap) -> Result<(Header, usize), ConcealError> {
+    fn read_header(mmap: &[u8]) -> Result<(Header, usize), ConcealError> {
         let len = BigEndian::read_u16(&mmap[..2]) as usize;
         let end = len + 2;
         let header = Header::from_bytes(&mmap[2..end])?;
@@ -238,8 +252,8 @@ impl Session {
 
     fn write_chunk(
         &mut self,
-        mi: &Mmap,
-        mo: &mut MmapMut,
+        mi: &[u8],
+        mo: &mut [u8],
         mi_pos: &mut Pos,
         mo_pos: &mut Pos,
     ) -> Result<(), ConcealError> {
@@ -250,6 +264,7 @@ impl Session {
         let mo_start = mo_pos.offset + 2;
         let mo_end = mo_start + mi_pos.len + 16;
 
+        println!("mi: {}, {}, mo: {}, {}", mi_start, mi_end, mo_start, mo_end);
         let len = self
             .state
             .write_message(&mi[mi_start..mi_end], &mut mo[mo_start..mo_end])?;
@@ -262,8 +277,8 @@ impl Session {
 
     fn read_chunk(
         &mut self,
-        mi: &Mmap,
-        mo: &mut MmapMut,
+        mi: &[u8],
+        mo: &mut [u8],
         mi_pos: &mut Pos,
         mo_pos: &mut Pos,
     ) -> Result<(), ConcealError> {
@@ -276,8 +291,8 @@ impl Session {
         let mo_end = mo_start + len - 16;
 
         println!(
-            "mi: ({}, {}), mo: ({}, {})",
-            mi_start, mi_end, mo_start, mo_end
+            "len: {}, mi: ({}, {}), mo: ({}, {})",
+            len, mi_start, mi_end, mo_start, mo_end
         );
         let len = self
             .state
@@ -301,8 +316,13 @@ mod tests {
 
     #[tokio::test]
     async fn default_params_shall_work() -> Result<(), ConcealError> {
-        let result =
-            param_combination(CipherMode::ChaChaPoly, HashMode::Blake2b, false, vec![256]).await?;
+        let result = param_combination(
+            CipherMode::ChaChaPoly,
+            HashMode::Blake2b,
+            false,
+            vec![NOISE_MESSAGE_MAX_SIZE + 1],
+        )
+        .await?;
 
         assert_eq!(result, true);
         Ok(())
@@ -456,15 +476,22 @@ mod tests {
         params: Vec<usize>,
     ) -> Result<bool, ConcealError> {
         let header = Header::new(cipher as i32, hash as i32, use_psk, Vec::new());
-        let futs: Vec<_> = params
-            .iter()
-            .map(|size| encrypt_decrypt(header.clone(), size.to_owned()))
-            .collect();
-        let result = join_all(futs)
-            .await
-            .iter()
-            .all(|v| v.as_ref().unwrap().to_owned());
-        Ok(result)
+        for size in params {
+            let good = encrypt_decrypt(header.clone(), size).await?;
+            if !good {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+        // let futs: Vec<_> = params
+        //     .iter()
+        //     .map(|size| encrypt_decrypt(header.clone(), size.to_owned()))
+        //     .collect();
+        // let result = join_all(futs)
+        //     .await
+        //     .iter()
+        //     .all(|v| v.as_ref().unwrap().to_owned());
+        // Ok(result)
     }
 
     async fn fill_file(name: impl AsRef<Path>, buf: &mut [u8]) {
