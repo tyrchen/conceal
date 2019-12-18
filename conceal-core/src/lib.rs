@@ -23,7 +23,7 @@ pub type PublicKey = [u8; 32];
 pub type Psk = [u8; 32];
 
 pub const NOISE_PARAMS: &str = "Noise_X_25519_ChaChaPoly_BLAKE2b";
-pub const NOISE_MESSAGE_MAX_BUFFER: usize = 65528;
+pub const NOISE_MESSAGE_MAX_BUFFER: usize = 65535;
 pub const NOISE_MAC_SIZE: usize = 16;
 pub const NOISE_ENCRYPT_LENGTH_SIZE: usize = 2;
 pub const NOISE_MESSAGE_MAX_SIZE: usize = NOISE_MESSAGE_MAX_BUFFER - NOISE_MAC_SIZE;
@@ -125,23 +125,25 @@ impl Session {
         }
     }
 
-    pub async fn encrypt_file(
+    pub fn encrypt_file(
         &mut self,
         infile: impl AsRef<Path> + fmt::Debug,
         outfile: impl AsRef<Path> + fmt::Debug,
     ) -> Result<usize, ConcealError> {
-        let (chunks, remainder) = Self::get_chunks(&infile, NOISE_MESSAGE_MAX_SIZE, 0).await?;
         let fi = File::open(&infile)?;
+        let mi = unsafe { Mmap::map(&fi)? };
+        let (chunks, remainder) = Self::get_chunks(&mi, NOISE_MESSAGE_MAX_SIZE, 0)?;
+
         let fo = OpenOptions::new()
             .read(true)
+            .append(true)
             .write(true)
             .create(true)
             .open(&outfile)?;
         let total = self.get_enc_len(chunks, remainder);
-        fo.set_len(total)?;
+        // fo.set_len(total)?;
         info!("Encrypted file length: {}", total);
 
-        let mi = unsafe { Mmap::map(&fi)? };
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
         let len = self.write_header(&mut mo)?;
@@ -155,10 +157,10 @@ impl Session {
             len: NOISE_MESSAGE_MAX_BUFFER,
         };
 
-        for i in 0..chunks {
+        for _i in 0..chunks {
             self.write_chunk(&mi, &mut mo, &mut mi_pos, &mut mo_pos)?;
-            debug!("chunk {}: {:#?}, {:#?}", i, mi_pos, mo_pos);
         }
+
         // write the remainder
         if remainder != 0 {
             mi_pos.len = remainder;
@@ -172,7 +174,7 @@ impl Session {
         Ok(mo_pos.offset)
     }
 
-    pub async fn decrypt_file(
+    pub fn decrypt_file(
         keypair: Keypair,
         psk: Option<Psk>,
         infile: impl AsRef<Path> + fmt::Debug,
@@ -190,18 +192,18 @@ impl Session {
         let mut session = Session::new(config)?;
 
         let (chunks, remainder) = Self::get_chunks(
-            &infile,
+            &mi,
             NOISE_MESSAGE_MAX_BUFFER + NOISE_ENCRYPT_LENGTH_SIZE,
             len,
-        )
-        .await?;
+        )?;
         let fo = OpenOptions::new()
             .read(true)
+            .append(true)
             .write(true)
             .create(true)
             .open(&outfile)?;
         let total = Self::get_dec_len(chunks, remainder);
-        fo.set_len(total)?;
+        // fo.set_len(total)?;
         info!("Decrypted file length: {}", total);
         let mut mo = unsafe { MmapMut::map_mut(&fo)? };
 
@@ -247,13 +249,9 @@ impl Session {
             len
         }
     }
-    async fn get_chunks(
-        name: impl AsRef<Path>,
-        size: usize,
-        offset: usize,
-    ) -> Result<(usize, usize), ConcealError> {
-        let metadata = tokio::fs::metadata(name).await?;
-        let len = metadata.len() as usize - offset;
+
+    fn get_chunks(buf: &[u8], size: usize, offset: usize) -> Result<(usize, usize), ConcealError> {
+        let len = buf.len() as usize - offset;
         let chunks = len / size;
         let remainder = len % size;
         debug!(
@@ -504,10 +502,10 @@ mod tests {
             psk,
         );
         let mut client_session = Session::new(client_config)?;
-        let _len = client_session.encrypt_file(&fi1, &fo).await?;
+        let _len = client_session.encrypt_file(&fi1, &fo)?;
 
         // decrypt
-        let _len = Session::decrypt_file(server_keypair, psk, &fo, &fi2).await?;
+        let _len = Session::decrypt_file(server_keypair, psk, &fo, &fi2)?;
         let out_buf = fs::read(&fi2).await?;
 
         Ok(in_buf == out_buf)

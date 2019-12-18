@@ -6,7 +6,7 @@ use conceal_core::{Psk, Session};
 pub async fn decrypt(opts: Opts, psk: Option<Psk>) -> Result<()> {
     let keypair = read_keypair(&opts.key_file.name).await?;
 
-    let len = Session::decrypt_file(keypair, psk, &opts.src, &opts.dst).await?;
+    let len = Session::decrypt_file(keypair, psk, &opts.src, &opts.dst)?;
     println!("decrypted {} bytes for {:?}", len, &opts.dst);
     Ok(())
 }

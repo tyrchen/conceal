@@ -26,7 +26,7 @@ pub async fn encrypt(
     };
     let config = SessionConfig::new(header, Some(recipient.to_vec()), keypair, psk);
     let mut session = Session::new(config)?;
-    let len = session.encrypt_file(&opts.src, &opts.dst).await?;
+    let len = session.encrypt_file(&opts.src, &opts.dst)?;
     println!("encrypted {} bytes for {:?}", len, &opts.dst);
     Ok(())
 }
