@@ -1,9 +1,26 @@
 [package]
 name = "conceal"
+# When releasing to crates.io:
+# - Remove path dependencies
+# - Update html_root_url.
+# - Update doc url
+#   - Cargo.toml
+#   - README.md
+# - Update CHANGELOG.md.
+# - Create git tag.
 version = "0.1.0"
 authors = ["Tyr Chen <tyr.chen@gmail.com>"]
 edition = "2018"
-
+license = "MIT"
+documentation = "https://docs.rs/conceal/0.1.0/conceal/"
+repository = "https://github.com/tyrchen/conceal"
+homepage = "https://github.com/tyrchen/conceal"
+description = """
+A file encryption tool that leverage.
+"""
+readme = "../README.md"
+categories = ["command-line-utilities"]
+keywords = ["encryption", "security", "cryptography"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
