@@ -7,8 +7,8 @@ pub use header::{CipherMode, HashMode, Header};
 impl Header {
     pub fn new(cipher: i32, hash: i32, use_psk: bool, handshake_message: Vec<u8>) -> Self {
         Self {
-            cipher: cipher,
-            hash: hash,
+            cipher,
+            hash,
             use_psk,
             handshake_message,
         }
