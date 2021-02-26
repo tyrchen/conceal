@@ -19,8 +19,8 @@ pub struct Header {
     #[prost(bool, tag = "3")]
     pub use_psk: bool,
     /// handshake message from the initiator
-    #[prost(bytes, tag = "4")]
-    pub handshake_message: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub handshake_message: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

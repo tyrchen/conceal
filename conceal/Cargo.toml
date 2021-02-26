@@ -8,11 +8,11 @@ name = "conceal"
 #   - README.md
 # - Update CHANGELOG.md.
 # - Create git tag.
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Tyr Chen <tyr.chen@gmail.com>"]
 edition = "2018"
 license = "MIT"
-documentation = "https://docs.rs/conceal/0.1.0/conceal/"
+documentation = "https://docs.rs/conceal/0.2.0/conceal/"
 repository = "https://github.com/tyrchen/conceal"
 homepage = "https://github.com/tyrchen/conceal"
 description = """
@@ -25,10 +25,9 @@ keywords = ["encryption", "security", "cryptography"]
 
 [dependencies]
 anyhow = "1"
-bs58 = "0.3"
+bs58 = "0.4"
 conceal-core = { path = "../conceal-core" }
-dirs = "2"
-rand = "0.7"
+dirs = "3"
+rand = "0.8"
 structopt = "0.3"
-tokio = { version = "0.2", features = ["fs", "io-util"] }
-
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
