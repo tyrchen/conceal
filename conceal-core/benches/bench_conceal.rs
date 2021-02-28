@@ -31,12 +31,12 @@ fn encrypt(c: &mut Criterion) {
 
     fs::create_dir_all("/tmp/conceal").unwrap();
 
-    c.bench_function_over_inputs(
-        "encryption",
-        move |b, &&p| {
+    let mut group = c.benchmark_group("different size");
+    for param in params.iter() {
+        group.bench_function(&format!("{:?}", &param), move |b| {
             let infile = "/tmp/conceal/bench_encrypt_cleartext";
             let outfile = "/tmp/conceal/bench_decrypt_ciphertext";
-            let mut buf = vec![0u8; p.size as usize];
+            let mut buf = vec![0u8; param.size as usize];
             fill_file(&infile, &mut buf);
             let client_keypair = generate_keypair().unwrap();
             let server_keypair = generate_keypair().unwrap();
@@ -46,13 +46,13 @@ fn encrypt(c: &mut Criterion) {
                 SessionConfig::new(header, Some(server_keypair.public), client_keypair, None);
             let mut session = Session::new(config).unwrap();
 
-            let mut rt = Runtime::new().unwrap();
+            let rt = Runtime::new().unwrap();
             b.iter(move || {
                 rt.block_on(session.encrypt_file(infile, outfile)).unwrap();
-            })
-        },
-        params,
-    );
+            });
+        });
+    }
+    group.finish();
 }
 
 fn fill_file(name: impl AsRef<Path>, buf: &mut [u8]) {
